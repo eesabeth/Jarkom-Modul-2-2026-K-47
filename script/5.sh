@@ -15,7 +15,7 @@ oblada   IN      A       10.87.5.6
 molly    IN      A       10.87.5.7
 
 nano /etc/bind/db.k47.com
-# ganti serial number -> 2
+# ganti serial number -> 4
 
 # node prab
 named
@@ -23,4 +23,9 @@ named
 # node tedd
 pkill named
 named
+
+# tes di node mana saja
+ping alpha.k47.com
+ping beta.k47.com
+ping molly.k47.com
 
