@@ -71,3 +71,6 @@ ping k47.com
 ping tedd.k47.com
 host k47.com 10.87.5.3
 
+# untuk restart
+named -u bind &
+
