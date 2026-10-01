@@ -17,4 +17,4 @@ curl http://vault.k47.com/arsip/
 
 # cek load balancing sudah jalan atau belum
 for i in {1..6}; do dig +short vault.k47.com; sleep 1; done
-ping -c 1 vault.k47.com
+ping -c 1 vault.k47.com  
