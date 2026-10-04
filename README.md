@@ -666,3 +666,552 @@ curl http://core.k47.com/profil
 
 <img src="assets/Modul2_10tes1.png" width="450">  
 <img src="assets/Modul2_10tes2.png" width="450">
+
+### Soal 11 (Reverse Proxy & Load Balancing)
+Lakukan konfigurasi Reverse Proxy dan Load Balancing pada node Penny (menggunakan Apache) untuk klaster Vault dan node Abbey (menggunakan Nginx) untuk klaster Core, yang mengarah pada node backend masing-masing.
+Konfigurasi Proxy Penny:
+```
+apt update
+apt install apache2 -y
+a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers
+nano /etc/apache2/sites-available/000-default.conf
+```
+Isi file /etc/apache2/sites-available/000-default.conf di Penny:
+```
+<VirtualHost *:80>
+    <Proxy "balancer://vault_cluster">
+        BalancerMember http://10.87.5.4
+        BalancerMember http://10.87.5.5
+    </Proxy>
+
+    ProxyPreserveHost On
+    RequestHeader set X-Real-IP %{REMOTE_ADDR}s
+
+    ProxyPass / balancer://vault_cluster/
+    ProxyPassReverse / balancer://vault_cluster/
+</VirtualHost>
+```
+```
+service apache2 restart
+```
+
+Konfigurasi Proxy Abbey:
+```
+apt update
+apt install nginx -y
+nano /etc/nginx/sites-available/default
+```
+Isi file /etc/nginx/sites-available/default di Abbey:
+```
+upstream core_cluster {
+    server 10.87.5.6;
+    server 10.87.5.7;
+}
+
+server {
+    listen 80;
+
+    location / {
+        proxy_pass http://core_cluster;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+```
+nginx -t
+service nginx restart
+```
+Konfigurasi Node Backend (Obladi, Desmond, Oblada, Molly):
+```
+apt update && apt install apache2 -y
+echo "Ini server [NAMA_SERVER]" > /var/www/html/index.html
+service apache2 start
+```
+Pengujian dengan curl di node Client (Rootkit):
+```
+curl http://10.87.4.2
+curl http://10.87.3.2
+```
+
+<img width="1110" height="621" alt="Soal_11" src="https://github.com/user-attachments/assets/f2f0deb1-2606-400e-8fde-81719ad6b042" />
+
+### Soal 12 (Basic Authentication)
+Tambahkan sistem otentikasi dasar (Basic Authentication) pada path /admin di node Penny menggunakan kredensial tertentu agar tidak bisa diakses sembarang pengguna.
+
+Konfigurasi Node Penny:
+```
+apt update && apt install apache2-utils -y
+htpasswd -b -c /etc/apache2/.htpasswd prabs 'pakar_pinter_jadi_gob***'
+mkdir -p /var/www/html/admin
+echo "Ini dokumen rahasia sindikat di Penny" > /var/www/html/admin/index.html
+nano /etc/apache2/sites-available/000-default.conf
+```
+Isi file /etc/apache2/sites-available/000-default.conf di Penny:
+```
+<VirtualHost *:80>
+    <Location "/admin">
+        AuthType Basic
+        AuthName "Ruang Rahasia Sindikat"
+        AuthUserFile /etc/apache2/.htpasswd
+        Require valid-user
+    </Location>
+
+    ProxyPass /admin !
+
+    <Proxy "balancer://vault_cluster">
+        BalancerMember http://10.87.5.4
+        BalancerMember http://10.87.5.5
+    </Proxy>
+
+    ProxyPreserveHost On
+    RequestHeader set X-Real-IP %{REMOTE_ADDR}s
+
+    ProxyPass / balancer://vault_cluster/
+    ProxyPassReverse / balancer://vault_cluster/
+</VirtualHost>
+```
+```
+service apache2 restart
+```
+Pengujian dari Node Client (Rootkit):
+```
+# Pengujian tanpa kredensial (akan ditolak / 401 Unauthorized)
+curl http://10.87.4.2/admin/
+
+# Pengujian dengan kredensial
+curl -u prabs:'pakar_pinter_jadi_gob***' http://10.87.4.2/admin/
+```
+
+<img width="921" height="320" alt="Soal_12 fix" src="https://github.com/user-attachments/assets/c9203493-441f-4f1e-ae19-25c0fd06d33d" />
+
+### Soal 13 (Redirect 301 & 302)
+Buat pengaturan pengalihan URL permanen (301) di node Penny dan pengalihan sementara (302) di node Abbey menuju domain target masing-masing.
+
+Konfigurasi Penny:
+```
+a2enmod rewrite
+nano /etc/apache2/sites-available/000-default.conf
+```
+Isi file /etc/apache2/sites-available/000-default.conf di Penny:
+```
+<VirtualHost *:80>
+    ServerName www.xxx.com
+    ServerAlias penny.xxx.com
+
+    RewriteEngine On
+    RewriteCond %{HTTP_HOST} ^10\.87\.4\.2$ [OR]
+    RewriteCond %{HTTP_HOST} ^penny\.xxx\.com$
+    RewriteRule ^(.*)$ http://www.xxx.com$1 [R=301,L]
+
+    <Location "/admin">
+        AuthType Basic
+        AuthName "Ruang Rahasia Sindikat"
+        AuthUserFile /etc/apache2/.htpasswd
+        Require valid-user
+    </Location>
+    ProxyPass /admin !
+
+    <Proxy "balancer://vault_cluster">
+        BalancerMember http://10.87.5.4
+        BalancerMember http://10.87.5.5
+    </Proxy>
+
+    ProxyPreserveHost On
+    RequestHeader set X-Real-IP %{REMOTE_ADDR}s
+
+    ProxyPass / balancer://vault_cluster/
+    ProxyPassReverse / balancer://vault_cluster/
+</VirtualHost>
+```
+```
+service apache2 restart
+```
+Konfigurasi Node Abbey (Redirect 302):
+```
+nano /etc/nginx/sites-available/default
+```
+Isi file /etc/nginx/sites-available/default di Abbey:
+```
+upstream core_cluster {
+    server 10.87.5.6;
+    server 10.87.5.7;
+}
+
+server {
+    listen 80;
+    server_name 10.87.3.2 abbey.xxx.com;
+    
+    return 302 http://static.xxx.com$request_uri;
+}
+
+server {
+    listen 80;
+    server_name static.xxx.com;
+
+    location / {
+        proxy_pass http://core_cluster;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+```
+nginx -t
+service nginx restart
+```
+
+<img width="484" height="335" alt="Soal_13" src="https://github.com/user-attachments/assets/12de932f-daff-4a4f-bb74-82dd41d685e3" />
+
+### Soal 14 (Log IP Asli Klien)
+Mengonfigurasi log format pada web server backend untuk menampilkan IP asli klien yang diteruskan melalui Reverse Proxy.
+
+Konfigurasi Backend Area Vault (Obladi & Desmond):
+```
+nano /etc/apache2/sites-available/000-default.conf
+```
+Isi file /etc/apache2/sites-available/000-default.conf di Obladi & Desmond:
+```
+<VirtualHost *:80>
+    DocumentRoot /var/www/html
+
+    LogFormat "%{X-Real-IP}i %l %u %t \"%r\" %>s %b" proxy_combined
+    CustomLog ${APACHE_LOG_DIR}/access.log proxy_combined
+</VirtualHost>
+```
+```
+apache2ctl configtest
+service apache2 restart
+```
+Konfigurasi Backend Area Core (Oblada & Molly):
+```
+service apache2 stop
+update-rc.d apache2 disable
+apt update && apt install nginx -y
+nano /etc/nginx/nginx.conf
+```
+Isi file /etc/nginx/nginx.conf di Oblada & Molly:
+(Sisipkan blok ini di dalam blok http { ... })
+```
+log_format custom_ip '$http_x_real_ip - $remote_user [$time_local] "$request" '
+                         '$status $body_bytes_sent "$http_referer" '
+                         '"$http_user_agent"';
+
+    access_log /var/log/nginx/access.log custom_ip;
+```
+```
+nginx -t
+service nginx start
+```
+Hasil:
+
+<img width="456" height="230" alt="Soal_14" src="https://github.com/user-attachments/assets/8090ef9c-2c63-41b3-83b3-55588cdabb2a" />
+
+<img width="717" height="61" alt="Soal_14 (2)" src="https://github.com/user-attachments/assets/50813be7-8003-4f60-b7a5-33bf84fbcd04" />
+
+### Soal 15 (Reverse Proxy Path /eternal & /orion)
+Mengarahkan direktori spesifik pada proxy menuju backend khusus dengan Nginx dan Apache.   
+
+1. Backend Area Vault & Proxy Penny (/eternal):
+```
+# Node Obladi & Desmond (Backend /eternal)
+apt update && apt install php libapache2-mod-php -y
+mkdir -p /var/www/eternal
+echo "<?php phpinfo(); ?>" > /var/www/eternal/index.php
+nano /etc/apache2/sites-available/000-default.conf
+```
+Isi blok Alias di 000-default.conf (Obladi & Desmond):
+```
+Alias /eternal /var/www/eternal
+<Directory /var/www/eternal>
+    Require all granted
+</Directory>
+```
+```
+service apache2 restart
+
+# Node Penny (Proxy)
+nano /etc/apache2/sites-available/000-default.conf
+```
+Isi konfigurasi Proxy di Penny (Letakkan di atas root /):
+```
+ProxyPass /eternal balancer://vault_cluster/eternal
+ProxyPassReverse /eternal balancer://vault_cluster/eternal
+```
+```
+service apache2 restart
+```
+
+2. Backend Area Core & Proxy Abbey (/orion):
+```
+# Node Oblada & Molly (Backend /orion)
+mkdir -p /var/www/orion
+echo "<h1>Ini adalah halaman statis Orion</h1>" > /var/www/orion/index.html
+nano /etc/nginx/sites-available/default
+```
+Isi lokasi di file default (Oblada & Molly):
+```
+location /orion {
+    alias /var/www/orion;
+    index index.html;
+}
+```
+```
+service nginx restart
+
+# Node Abbey (Proxy)
+nano /etc/nginx/sites-available/default
+```
+Isi lokasi proxy di default domain static.xxx.com (Abbey):
+```
+location /orion {
+    proxy_pass http://core_cluster/orion;
+}
+```
+```
+service nginx restart
+```
+Hasil:
+
+<img width="819" height="353" alt="Soal_15" src="https://github.com/user-attachments/assets/3a5c4954-b0d5-4d50-a1f2-e1585fd0facf" />
+
+### Soal 16 (Stress Test ApacheBench)
+Melakukan pengujian beban dengan ApacheBench ke titik akhir [www.xxx.com](https://www.xxx.com) dan static.xxx.com.
+
+Eksekusi di Node Client (Alpha / Rootkit):
+```
+apt update && apt install apache2-utils -y
+
+# Stress Test 1
+ab -n 250 -c 10 http://www.xxx.com/
+
+# Stress Test 2
+ab -n 250 -c 10 http://static.xxx.com/
+```
+
+<img width="397" height="551" alt="Soal_16" src="https://github.com/user-attachments/assets/ebfc9a3d-68ac-4e8b-ad92-5080c82f1cce" />
+
+<img width="391" height="518" alt="Soal_16 (2)" src="https://github.com/user-attachments/assets/64149f41-2d27-4863-bd1b-3648ad5300cf" />
+
+### Soal 17 (TXT Record DNS BIND9)
+Menambahkan record TXT pada server DNS Master untuk memverifikasi entitas klien.
+
+1. Konfigurasi Node Prab (DNS Master):
+```
+apt update && apt install bind9 -y
+nano /etc/bind/named.conf.local
+```
+Isi file /etc/bind/named.conf.local di Prab:
+```
+zone "xxx.com" {
+    type master;
+    file "/etc/bind/db.xxx.com";
+};
+```
+```
+nano /etc/bind/db.xxx.com
+```
+Isi file /etc/bind/db.xxx.com di Prab:
+```
+$TTL    604800
+@       IN  SOA ns.xxx.com. root.xxx.com. (
+                        2         ; Serial
+                   604800         ; Refresh
+                    86400         ; Retry
+                   2419200         ; Expire
+                   604800 )       ; Negative Cache TTL
+
+@       IN  NS  ns.xxx.com.
+ns      IN  A   10.87.5.2
+
+alpha   IN  TXT "alpha"
+beta    IN  TXT "beta"
+gamma   IN  TXT "gamma"
+delta   IN  TXT "delta"
+epsilon IN  TXT "epsilon"
+```
+```
+rndc reload
+```
+2. Pengujian Klien:
+```
+dig TXT alpha.xxx.com +short
+```
+
+<img width="471" height="63" alt="Soal_17" src="https://github.com/user-attachments/assets/f094dbb0-7830-4210-9c9c-da267c98cde2" />
+
+### Soal 18 (DNS Master-Slave & TTL)
+Mengonfigurasi skema Master-Slave dan mengubah parameter TTL DNS menjadi 15 detik untuk simulasi pembaruan cache A record.
+
+1. Konfigurasi Prab (Master) & Tedd (Slave):
+```
+# Node Prab (Master)
+nano /etc/bind/db.xxx.com
+```
+Isi file /etc/bind/db.xxx.com di Prab:
+```
+$TTL    15
+@       IN  SOA ns.xxx.com. root.xxx.com. (
+                    2026100105  ; Serial (dinaikkan secara berkala)
+                15          ; Refresh
+                5           ; Retry
+                604800      ; Expire
+                15 )        ; Negative Cache TTL
+
+@       IN  NS  ns.xxx.com.
+ns      IN  A   10.87.5.2
+
+abbey   IN  A   192.168.99.99
+
+alpha   IN  TXT "alpha"
+beta    IN  TXT "beta"
+gamma   IN  TXT "gamma"
+delta   IN  TXT "delta"
+epsilon IN  TXT "epsilon"
+```
+```
+rndc reload
+
+# Node Tedd (Slave)
+apt update && apt install bind9 -y
+nano /etc/bind/named.conf.local
+```
+Isi file /etc/bind/named.conf.local di Tedd:
+```
+zone "xxx.com" {
+    type slave;
+    masters { 10.87.5.2; };
+    file "/var/cache/bind/db.xxx.com";
+};
+```
+```
+service named restart
+rndc reload
+```
+
+2. Pengujian di Client (Alpha):
+```
+getent hosts abbey.xxx.com
+# Lakukan query berulang-ulang hingga melampaui 15 detik dan cache terganti
+```
+
+<img width="427" height="64" alt="Soal_18" src="https://github.com/user-attachments/assets/5fb30172-01e7-4b74-8de0-1a66f6573222" />
+
+<img width="429" height="67" alt="Soal_18 (2)" src="https://github.com/user-attachments/assets/8d8e1e4a-1f9f-4a4b-a268-14e18f69bd7c" />
+
+### Soal 19 (CNAME & Forwarder BIND9)
+Mengaktifkan mode rekursif pada DNS agar klien dapat melakukan lookup ke domain publik dan membuat CNAME untuk domain eksternal[cite: 36].
+
+1. Konfigurasi Node Prab (DNS Master):
+```
+nano /etc/bind/named.conf.options
+```
+Isi file /etc/bind/named.conf.options di Prab[cite: 36]:
+```
+options {
+    directory "/var/cache/bind";
+
+    recursion yes;
+    allow-query { any; };
+    allow-recursion { any; };
+
+    forwarders {
+        8.8.8.8;
+        1.1.1.1;
+    };
+
+    dnssec-validation auto;
+    listen-on { any; };
+};
+```
+```
+nano /etc/bind/db.xxx.com
+```
+Isi tambahan record di /etc/bind/db.xxx.com di Prab[cite: 36]:
+```
+outbound IN CNAME http.badssl.com.
+```
+```
+service named restart
+
+# Di Node Tedd (Slave)
+rndc reload
+```
+
+2. Pengujian di Client:
+```
+dig outbound.xxx.com @10.87.5.2
+curl -L http://outbound.xxx.com
+```
+
+<img width="1107" height="621" alt="Soal_19 (1)" src="https://github.com/user-attachments/assets/d5656dd1-638a-4967-bbce-7acda602f395" />
+
+<img width="1129" height="541" alt="Soal_19 (2)" src="https://github.com/user-attachments/assets/24e45331-a3cf-4678-b4c6-b2fb061a6d77" />
+
+<img width="1105" height="548" alt="Soal_19 (3)" src="https://github.com/user-attachments/assets/9da904c6-6914-48a1-8161-2cd4562de298" />
+
+<img width="1105" height="619" alt="Soal_19 (4)" src="https://github.com/user-attachments/assets/d4680399-c495-41ca-8a6b-4009c6035789" />
+
+<img width="1105" height="615" alt="Soal_19 (5)" src="https://github.com/user-attachments/assets/dae2270a-d621-44ed-a019-d68c03ba3cbb" />
+
+<img width="1111" height="619" alt="Soal_19 (6)" src="https://github.com/user-attachments/assets/55c77820-244f-4953-94b3-b3a1fd40f582" />
+
+### Soal 20 (Autostart Service & Normalisasi Zona)
+Mengembalikan parameter file zona ke semula (Normalisasi dari Soal 18) dan memastikan seluruh daemon web serta DNS menggunakan mode autostart[cite: 37].
+
+1. Normalisasi Zona Prab (DNS Master):
+```
+nano /etc/bind/db.xxx.com
+```
+Isi file /etc/bind/db.xxx.com hasil normalisasi di Prab[cite: 37]:
+```
+$TTL    86400
+@       IN  SOA ns.xxx.com. root.xxx.com. (
+                    2026100120  ; Serial (naikkan angkanya)
+                3600        ; Refresh
+                1800        ; Retry
+                604800      ; Expire
+                86400 )     ; Negative Cache TTL
+
+@       IN  NS  ns.xxx.com.
+ns      IN  A   10.87.5.2
+
+abbey   IN  A   10.87.3.2   ; Dikembalikan ke IP asal
+
+outbound IN CNAME http.badssl.com.
+
+alpha   IN  TXT "alpha"
+beta    IN  TXT "beta"
+gamma   IN  TXT "gamma"
+delta   IN  TXT "delta"
+epsilon IN  TXT "epsilon"
+```
+2. Konfigurasi Autostart (Pada Seluruh Node):
+```
+# Node Prab
+update-rc.d named defaults
+service named start
+
+# Node Tedd
+rndc reload
+update-rc.d named defaults
+service named start
+
+# Node Penny
+update-rc.d apache2 defaults
+service apache2 start
+
+# Node Abbey
+update-rc.d nginx defaults
+service nginx start
+```
+
+<img width="1123" height="94" alt="Soal_20 (1)" src="https://github.com/user-attachments/assets/78f2abc4-29e9-4526-a8e7-7c2b17390ce4" />
+
+<img width="734" height="90" alt="Soal_20 (2)" src="https://github.com/user-attachments/assets/51f06271-3f89-4dc0-992f-49357588a4db" />
+
+<img width="414" height="68" alt="Soal_20 (3)" src="https://github.com/user-attachments/assets/b64581e6-4872-4a83-a9e2-418cbb512879" />
+
+<img width="418" height="89" alt="Soal_20 (4)" src="https://github.com/user-attachments/assets/f9238493-ce11-432c-a966-a3b1a2583c9e" />
