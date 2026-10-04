@@ -1,7 +1,7 @@
 # buka node prab
 nano /etc/bind/db.k47.com
 # tambahkan
-rootkit  IN      A       10.87.1.1   ; (sesuaikan IP gateway rootkit jika berbeda)
+rootkit  IN      A       10.87.1.1   
 alpha    IN      A       10.87.1.2
 beta     IN      A       10.87.1.3
 gamma    IN      A       10.87.1.4
